@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Приложение для Размытия Изображений</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for Inter font and specific overrides */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        canvas {
+            border: 1px solid #e5e7eb; /* Light border for canvas */
+            background-color: #ffffff; /* White background for canvas */
+            max-width: 100%; /* Ensure canvas is responsive */
+            height: auto; /* Maintain aspect ratio */
+            border-radius: 0.5rem; /* Rounded corners for canvas */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+        }
+        /* Hide default file input */
+        input[type="file"] {
+            display: none;
+        }
+        /* Style for custom file input button */
+        .custom-file-upload {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            background-color: #3b82f6; /* Blue */
+            color: white;
+            border-radius: 0.5rem;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .custom-file-upload:hover {
+            background-color: #2563eb; /* Darker blue on hover */
+        }
+        /* Style for buttons */
+        button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            transition: background-color 0.2s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-2xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Приложение для Размытия Изображений</h1>
+
+        <div class="flex flex-col items-center space-y-4 mb-6">
+            <!-- File Upload Section -->
+            <label for="imageUpload" class="custom-file-upload">
+                Загрузить Изображение
+            </label>
+            <input type="file" id="imageUpload" accept="image/*" class="hidden">
+            <span id="fileName" class="text-gray-600 text-sm">Файл не выбран</span>
+
+            <!-- Action Buttons -->
+            <div class="flex space-x-4 mt-6">
+                <button id="downloadImage" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg" disabled>
+                    Скачать Изображение
+                </button>
+            </div>
+        </div>
+
+        <!-- Canvas for Image Display and Processing -->
+        <div class="mt-8 flex justify-center">
+            <canvas id="imageCanvas"></canvas>
+        </div>
+
+        <!-- Message Display -->
+        <p id="message" class="text-red-500 text-center mt-4 hidden"></p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const imageUpload = document.getElementById('imageUpload');
+            const fileNameSpan = document.getElementById('fileName');
+            const downloadImageButton = document.getElementById('downloadImage');
+            const imageCanvas = document.getElementById('imageCanvas');
+            const ctx = imageCanvas.getContext('2d');
+            const messageDisplay = document.getElementById('message');
+
+            let originalImage = null; // Stores the loaded Image object
+            let currentImageBlob = null; // Stores the blob of the last processed image
+
+            // Function to draw an image onto the canvas, scaling it down if too large
+            function drawImageOnCanvas(img) {
+                const maxWidth = 500; // Max width for display
+                const maxHeight = 500; // Max height for display
+
+                let width = img.width;
+                let height = img.height;
+
+                // Calculate aspect ratio to fit within max dimensions
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height *= maxWidth / width;
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width *= maxHeight / height;
+                        height = maxHeight;
+                    }
+                }
+
+                imageCanvas.width = width;
+                imageCanvas.height = height;
+                ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+                ctx.drawImage(img, 0, 0, width, height);
+            }
+
+            // Optimized Separable Box Blur implementation
+            function applyBoxBlur(imageData, radius) {
+                const pixels = imageData.data;
+                const width = imageData.width;
+                const height = imageData.height;
+                const tempPixels = new Uint8ClampedArray(pixels.length); // Temporary array for intermediate results
+
+                if (radius === 0) {
+                    return imageData; // No blur needed
+                }
+
+                // --- Horizontal Pass ---
+                // Copy original pixels to tempPixels for the horizontal pass calculation
+                for (let i = 0; i < pixels.length; i++) {
+                    tempPixels[i] = pixels[i];
+                }
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        let r = 0, g = 0, b = 0, a = 0;
+                        let count = 0;
+                        for (let kx = -radius; kx <= radius; kx++) {
+                            const nx = x + kx;
+                            if (nx >= 0 && nx < width) {
+                                const index = (y * width + nx) * 4;
+                                r += tempPixels[index];
+                                g += tempPixels[index + 1];
+                                b += tempPixels[index + 2];
+                                a += tempPixels[index + 3];
+                                count++;
+                            }
+                        }
+                        const currentPixelIndex = (y * width + x) * 4;
+                        pixels[currentPixelIndex] = r / count;
+                        pixels[currentPixelIndex + 1] = g / count;
+                        pixels[currentPixelIndex + 2] = b / count;
+                        pixels[currentPixelIndex + 3] = a / count;
+                    }
+                }
+
+                // --- Vertical Pass ---
+                // Copy horizontally blurred pixels (from 'pixels' array) to tempPixels for the vertical pass calculation
+                for (let i = 0; i < pixels.length; i++) {
+                    tempPixels[i] = pixels[i];
+                }
+
+                for (let x = 0; x < width; x++) {
+                    for (let y = 0; y < height; y++) {
+                        let r = 0, g = 0, b = 0, a = 0;
+                        let count = 0;
+                        for (let ky = -radius; ky <= radius; ky++) {
+                            const ny = y + ky;
+                            if (ny >= 0 && ny < height) {
+                                const index = (ny * width + x) * 4;
+                                r += tempPixels[index];
+                                g += tempPixels[index + 1];
+                                b += tempPixels[index + 2];
+                                a += tempPixels[index + 3];
+                                count++;
+                            }
+                        }
+                        const currentPixelIndex = (y * width + x) * 4;
+                        pixels[currentPixelIndex] = r / count;
+                        pixels[currentPixelIndex + 1] = g / count;
+                        pixels[currentPixelIndex + 2] = b / count;
+                        pixels[currentPixelIndex + 3] = a / count;
+                    }
+                }
+                return imageData;
+            }
+
+            // Invert effect implementation (kept for reference, but not called)
+            function applyInvert(imageData) {
+                const pixels = imageData.data;
+                for (let i = 0; i < pixels.length; i += 4) {
+                    pixels[i] = 255 - pixels[i];     // Red
+                    pixels[i + 1] = 255 - pixels[i + 1]; // Green
+                    pixels[i + 2] = 255 - pixels[i + 2]; // Blue
+                }
+                return imageData;
+            }
+
+            // Central function to process and display the image with current effects
+            function processImage() {
+                if (!originalImage) {
+                    showMessage('Пожалуйста, сначала загрузите изображение.', true);
+                    return;
+                }
+
+                showMessage('Обработка изображения...', false);
+                downloadImageButton.disabled = true;
+
+                // Always redraw original image to canvas before applying effects
+                drawImageOnCanvas(originalImage);
+
+                // Get fresh image data from the canvas
+                let imageData = ctx.getImageData(0, 0, imageCanvas.width, imageCanvas.height);
+
+                // Apply blur with radius 100 by default
+                const blurRadius = 100; // Fixed blur radius
+                if (blurRadius > 0) {
+                    imageData = applyBoxBlur(imageData, blurRadius);
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+
+                // Get the processed image as a blob for download
+                imageCanvas.toBlob((blob) => {
+                    if (currentImageBlob) {
+                        URL.revokeObjectURL(currentImageBlob); // Clean up previous blob URL
+                    }
+                    currentImageBlob = URL.createObjectURL(blob);
+                    downloadImageButton.disabled = false;
+                    showMessage('Изображение обработано успешно!', false);
+                }, 'image/png'); // Always save as PNG for quality
+            }
+
+            // Event listener for image file upload
+            imageUpload.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    fileNameSpan.textContent = file.name;
+                    messageDisplay.classList.add('hidden'); // Hide any previous messages
+                    downloadImageButton.disabled = true; // Disable download until new blur is applied
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            originalImage = img;
+                            processImage(); // Process image immediately after loading
+                        };
+                        img.onerror = () => {
+                            showMessage('Не удалось загрузить изображение. Пожалуйста, убедитесь, что это действительный файл изображения.', true);
+                            originalImage = null;
+                            imageCanvas.width = 0;
+                            imageCanvas.height = 0;
+                            downloadImageButton.disabled = true;
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    fileNameSpan.textContent = 'Файл не выбран';
+                    originalImage = null;
+                    imageCanvas.width = 0;
+                    imageCanvas.height = 0;
+                    downloadImageButton.disabled = true;
+                    showMessage('Пожалуйста, выберите файл изображения.', true);
+                }
+            });
+
+            // Event listener for download button
+            downloadImageButton.addEventListener('click', () => {
+                if (currentImageBlob) {
+                    const a = document.createElement('a');
+                    a.href = currentImageBlob;
+                    a.download = 'processed_image.png'; // Suggested filename
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    // No need to revokeObjectURL immediately here, as it's for download
+                    // It will be revoked when a new blur is applied or page reloaded.
+                } else {
+                    showMessage('Нет изображения для скачивания. Пожалуйста, загрузите изображение.', true);
+                }
+            });
+
+            // Function to display messages to the user
+            function showMessage(msg, isError) {
+                messageDisplay.textContent = msg;
+                messageDisplay.classList.remove('hidden');
+                if (isError) {
+                    messageDisplay.classList.remove('text-green-500');
+                    messageDisplay.classList.add('text-red-500');
+                } else {
+                    messageDisplay.classList.remove('text-red-500');
+                    messageDisplay.classList.add('text-green-500');
+                }
+            }
+
+            // Initial state: disable buttons until image is loaded
+            downloadImageButton.disabled = true;
+        });
+    </script>
+</body>
+</html>
